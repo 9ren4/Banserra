@@ -54,6 +54,8 @@ def health():
 
 @app.post("/link_token")
 def create_link_token():
+    # For MVP we hardcode a user id.
+    # Later you can use real auth and set this to the logged-in user's id.
     request = LinkTokenCreateRequest(
         user=LinkTokenCreateRequestUser(client_user_id="banserra-user-1"),
         client_name="banserra",
@@ -61,5 +63,16 @@ def create_link_token():
         country_codes=[CountryCode("US")],
         language="en",
     )
+
     response = plaid_client.link_token_create(request)
     return response.to_dict()
+
+'''
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins = ["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+'''
