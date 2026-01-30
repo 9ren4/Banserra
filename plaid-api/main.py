@@ -17,6 +17,8 @@ from plaid.model.item_public_token_exchange_request import (
     ItemPublicTokenExchangeRequest
 )
 from datetime import date, timedelta
+from collections import defaultdict
+
 
 load_dotenv()
 
@@ -122,6 +124,61 @@ def get_transactions():
     response = plaid_client.transactions_get(request)
 
     return response.to_dict()
+
+@app.get("/insights")
+def get_insights():
+    access_token = ACCESS_TOKENS.get("banserra-user-1")
+    if not access_token:
+        return {"error": "No bank connected"}
+
+    start_date = date.today() - timedelta(days=30)
+    end_date = date.today()
+
+    request = TransactionsGetRequest(
+        access_token=access_token,
+        start_date=start_date,
+        end_date=end_date,
+        options=TransactionsGetRequestOptions(count=200, offset=0)
+    )
+
+    resp = plaid_client.transactions_get(request).to_dict()
+    txs = resp.get("transactions", [])
+
+    by_category = defaultdict(float)
+    by_day = defaultdict(float)
+
+    for tx in txs:
+        amount = float(tx.get("amount", 0))
+
+        # Only count spending (positive amounts are usually spend in Plaid sandbox)
+        if amount <= 0:
+            continue
+
+        # Category handling: Plaid provides "category" as a list sometimes
+        cat = tx.get("category")
+        if isinstance(cat, list) and len(cat) > 0:
+            category_name = cat[0]
+        else:
+            category_name = tx.get("personal_finance_category", {}).get("primary") or "Other"
+
+        by_category[category_name] += amount
+
+        day = tx.get("date")  # "YYYY-MM-DD"
+        if day:
+            by_day[day] += amount
+
+    # Sort for frontend
+    category_labels = list(by_category.keys())
+    category_values = [round(by_category[k], 2) for k in category_labels]
+
+    day_labels = sorted(by_day.keys())
+    day_values = [round(by_day[d], 2) for d in day_labels]
+
+    return {
+        "by_category": {"labels": category_labels, "values": category_values},
+        "by_day": {"labels": day_labels, "values": day_values},
+    }
+
 
 '''
 app.add_middleware(
