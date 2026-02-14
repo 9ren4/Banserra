@@ -9,7 +9,7 @@ export default function Home() {
 
   // fetch link_token from backend
   async function createLinkToken() {
-    const res = await fetch("http://localhost:8095/link_token", {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/link_token`, {
       method: "POST",
     });
     const data = await res.json();
@@ -19,7 +19,7 @@ export default function Home() {
   const onSuccess = useCallback(
     async (public_token: string) => {
       // send public_token to backend
-      const res = await fetch("http://localhost:8095/exchange_token", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/exchange_token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ public_token }),

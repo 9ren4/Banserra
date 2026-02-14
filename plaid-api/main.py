@@ -18,7 +18,8 @@ from plaid.model.item_public_token_exchange_request import (
 )
 from datetime import date, timedelta
 from collections import defaultdict
-
+from sqlalchemy import text
+from database import SessionLocal
 
 load_dotenv()
 
@@ -54,7 +55,7 @@ app.add_middleware(
 )
 
 # TEMP storage (memory only)
-ACCESS_TOKENS = {}
+#ACCESS_TOKENS = {}
 
 # ---------------- ROUTES ----------------
 
@@ -71,7 +72,7 @@ def create_link_token():
         ),
         client_name="banserra",
         products=[Products("transactions")],
-        country_codes=[CountryCode("US")],
+        country_codes=[CountryCode("GB")],
         language="en",
     )
 
@@ -93,7 +94,22 @@ def exchange_public_token(data: ExchangeTokenRequest):
 
     response = plaid_client.item_public_token_exchange(request)
 
-    ACCESS_TOKENS["banserra-user-1"] = response["access_token"]
+    db = SessionLocal()
+
+    db.execute(
+        text("""
+            INSERT INTO plaid_items (user_id, access_token, item_id)
+            VALUES (:user_id, :access_token, :item_id)
+        """),
+        {
+            "user_id": "banserra-user-1",
+            "access_token": response["access_token"],
+            "item_id": response["item_id"],
+        }
+    )
+
+    db.commit()
+    db.close()
 
     return {
         "status": "connected",
@@ -103,7 +119,22 @@ def exchange_public_token(data: ExchangeTokenRequest):
 
 @app.get("/transactions")
 def get_transactions():
-    access_token = ACCESS_TOKENS.get("banserra-user-1")
+    db = SessionLocal()
+
+    row = db.execute(
+        text("""
+            SELECT access_token
+            FROM plaid_items
+            WHERE user_id = :u
+            ORDER BY created_at DESC
+            LIMIT 1
+        """),
+        {"u": "banserra-user-1"}
+    ).fetchone()
+
+    db.close()
+
+    access_token = row[0] if row else None
 
     if not access_token:
         return {"error": "No bank connected"}
@@ -127,10 +158,28 @@ def get_transactions():
 
 @app.get("/insights")
 def get_insights():
-    access_token = ACCESS_TOKENS.get("banserra-user-1")
+    # --- 1. Read access_token from DB ---
+    db = SessionLocal()
+
+    row = db.execute(
+        text("""
+            SELECT access_token
+            FROM plaid_items
+            WHERE user_id = :u
+            ORDER BY created_at DESC
+            LIMIT 1
+        """),
+        {"u": "banserra-user-1"}
+    ).fetchone()
+
+    db.close()
+
+    access_token = row[0] if row else None
+
     if not access_token:
         return {"error": "No bank connected"}
 
+    # --- 2. Fetch transactions from Plaid ---
     start_date = date.today() - timedelta(days=30)
     end_date = date.today()
 
@@ -138,36 +187,44 @@ def get_insights():
         access_token=access_token,
         start_date=start_date,
         end_date=end_date,
-        options=TransactionsGetRequestOptions(count=200, offset=0)
+        options=TransactionsGetRequestOptions(
+            count=200,
+            offset=0
+        )
     )
 
-    resp = plaid_client.transactions_get(request).to_dict()
-    txs = resp.get("transactions", [])
+    response = plaid_client.transactions_get(request).to_dict()
+    transactions = response.get("transactions", [])
 
+    # --- 3. Aggregate spending ---
     by_category = defaultdict(float)
     by_day = defaultdict(float)
 
-    for tx in txs:
+    for tx in transactions:
         amount = float(tx.get("amount", 0))
 
-        # Only count spending (positive amounts are usually spend in Plaid sandbox)
+        # Only count positive spending
         if amount <= 0:
             continue
 
-        # Category handling: Plaid provides "category" as a list sometimes
+        # Category handling
         cat = tx.get("category")
         if isinstance(cat, list) and len(cat) > 0:
             category_name = cat[0]
         else:
-            category_name = tx.get("personal_finance_category", {}).get("primary") or "Other"
+            category_name = (
+                tx.get("personal_finance_category", {})
+                .get("primary")
+                or "Other"
+            )
 
         by_category[category_name] += amount
 
-        day = tx.get("date")  # "YYYY-MM-DD"
+        day = tx.get("date")
         if day:
             by_day[day] += amount
 
-    # Sort for frontend
+    # --- 4. Format for frontend ---
     category_labels = list(by_category.keys())
     category_values = [round(by_category[k], 2) for k in category_labels]
 
@@ -175,8 +232,14 @@ def get_insights():
     day_values = [round(by_day[d], 2) for d in day_labels]
 
     return {
-        "by_category": {"labels": category_labels, "values": category_values},
-        "by_day": {"labels": day_labels, "values": day_values},
+        "by_category": {
+            "labels": category_labels,
+            "values": category_values
+        },
+        "by_day": {
+            "labels": day_labels,
+            "values": day_values
+        }
     }
 
 

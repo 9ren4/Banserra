@@ -37,7 +37,7 @@ export default function Dashboard() {
       setError("");
 
       // 1) Transactions
-      const txRes = await fetch("http://localhost:8095/transactions");
+      const txRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/transactions`);
       const txData = await txRes.json();
       if (txData.error) {
         setError(txData.error);
@@ -46,7 +46,7 @@ export default function Dashboard() {
       setTransactions(txData.transactions || []);
 
       // 2) Insights
-      const inRes = await fetch("http://localhost:8095/insights");
+      const inRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/insights`);
       const inData = await inRes.json();
       if (inData.error) {
         setError(inData.error);
