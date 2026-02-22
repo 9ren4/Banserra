@@ -27,6 +27,9 @@ PLAID_CLIENT_ID = os.getenv("PLAID_CLIENT_ID")
 PLAID_SECRET = os.getenv("PLAID_SECRET")
 PLAID_ENV = os.getenv("PLAID_ENV", "sandbox")
 
+if not PLAID_CLIENT_ID or not PLAID_SECRET:
+    raise RuntimeError("Missing Plaid credentials")
+
 host = {
     "sandbox": "https://sandbox.plaid.com",
     "development": "https://development.plaid.com",
@@ -48,7 +51,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -72,7 +75,7 @@ def create_link_token():
         ),
         client_name="banserra",
         products=[Products("transactions")],
-        country_codes=[CountryCode("GB")],
+        country_codes=[CountryCode("US")],  # Use US for sandbox testing
         language="en",
     )
 

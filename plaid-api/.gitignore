@@ -1,4 +1,11 @@
-.venv/
-__pycache__/
-.env
-create_link_token.py
+# Python
+plaid-api/.venv/
+plaid-api/.env
+
+# Node
+node_modules/
+.env.local
+
+# OS
+.DS_Store
+    
