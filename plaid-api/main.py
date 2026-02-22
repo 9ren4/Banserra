@@ -159,6 +159,34 @@ def get_transactions():
 
     return response.to_dict()
 
+@app.get("/accounts")
+def get_accounts():
+    db = SessionLocal()
+
+    row = db.execute(
+        text("""
+            SELECT access_token
+            FROM plaid_items
+            WHERE user_id = :u
+            ORDER BY created_at DESC
+            LIMIT 1
+        """),
+        {"u": "banserra-user-1"}
+    ).fetchone()
+
+    db.close()
+
+    access_token = row[0] if row else None
+
+    if not access_token:
+        return {"error": "No bank connected"}
+
+    from plaid.model.accounts_get_request import AccountsGetRequest
+    request = AccountsGetRequest(access_token=access_token)
+    response = plaid_client.accounts_get(request)
+
+    return response.to_dict()
+
 @app.get("/insights")
 def get_insights():
     # --- 1. Read access_token from DB ---
@@ -244,6 +272,7 @@ def get_insights():
             "values": day_values
         }
     }
+
 
 
 '''
