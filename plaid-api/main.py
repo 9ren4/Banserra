@@ -4,8 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from plaid.model.transactions_get_request import TransactionsGetRequest
-from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
+from plaid.model.transactions_sync_request import TransactionsSyncRequest
 from plaid.api import plaid_api
 from plaid.configuration import Configuration
 from plaid.api_client import ApiClient
@@ -16,7 +15,6 @@ from plaid.model.country_code import CountryCode
 from plaid.model.item_public_token_exchange_request import (
     ItemPublicTokenExchangeRequest
 )
-from datetime import date, timedelta
 from collections import defaultdict
 from sqlalchemy import text
 from database import SessionLocal
@@ -126,7 +124,7 @@ def get_transactions():
 
     row = db.execute(
         text("""
-            SELECT access_token
+            SELECT access_token, cursor
             FROM plaid_items
             WHERE user_id = :u
             ORDER BY created_at DESC
@@ -135,29 +133,51 @@ def get_transactions():
         {"u": "banserra-user-1"}
     ).fetchone()
 
-    db.close()
-
-    access_token = row[0] if row else None
-
-    if not access_token:
+    if not row:
+        db.close()
         return {"error": "No bank connected"}
 
-    start_date = date.today() - timedelta(days=30)
-    end_date = date.today()
+    access_token = row[0]
+    cursor = row[1] or ""
 
-    request = TransactionsGetRequest(
-        access_token=access_token,
-        start_date=start_date,
-        end_date=end_date,
-        options=TransactionsGetRequestOptions(
-            count=50,
-            offset=0
+    # Fetch all transactions using sync (handles pagination automatically)
+    all_added = []
+    all_modified = []
+    all_removed = []
+    has_more = True
+
+    while has_more:
+        request = TransactionsSyncRequest(
+            access_token=access_token,
+            cursor=cursor
         )
+        response = plaid_client.transactions_sync(request).to_dict()
+
+        all_added.extend(response.get("added", []))
+        all_modified.extend(response.get("modified", []))
+        all_removed.extend(response.get("removed", []))
+
+        cursor = response.get("next_cursor", "")
+        has_more = response.get("has_more", False)
+
+    # Save the cursor for next sync
+    db.execute(
+        text("""
+            UPDATE plaid_items
+            SET cursor = :cursor
+            WHERE user_id = :u
+        """),
+        {"cursor": cursor, "u": "banserra-user-1"}
     )
+    db.commit()
+    db.close()
 
-    response = plaid_client.transactions_get(request)
-
-    return response.to_dict()
+    return {
+        "added": all_added,
+        "modified": all_modified,
+        "removed": all_removed,
+        "transactions": all_added  # For backward compatibility
+    }
 
 @app.get("/accounts")
 def get_accounts():
@@ -210,22 +230,23 @@ def get_insights():
     if not access_token:
         return {"error": "No bank connected"}
 
-    # --- 2. Fetch transactions from Plaid ---
-    start_date = date.today() - timedelta(days=30)
-    end_date = date.today()
+    # --- 2. Fetch transactions from Plaid using sync ---
+    cursor = ""
+    all_transactions = []
+    has_more = True
 
-    request = TransactionsGetRequest(
-        access_token=access_token,
-        start_date=start_date,
-        end_date=end_date,
-        options=TransactionsGetRequestOptions(
-            count=200,
-            offset=0
+    while has_more:
+        request = TransactionsSyncRequest(
+            access_token=access_token,
+            cursor=cursor
         )
-    )
+        response = plaid_client.transactions_sync(request).to_dict()
 
-    response = plaid_client.transactions_get(request).to_dict()
-    transactions = response.get("transactions", [])
+        all_transactions.extend(response.get("added", []))
+        cursor = response.get("next_cursor", "")
+        has_more = response.get("has_more", False)
+
+    transactions = all_transactions
 
     # --- 3. Aggregate spending ---
     by_category = defaultdict(float)
