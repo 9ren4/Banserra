@@ -118,8 +118,8 @@ export default function Dashboard() {
             padding: "10px 0",
           }}
         >
-          <strong>{tx.name}</strong>
-          <div>Amount: ${tx.amount}</div>
+          <strong>{tx.description}</strong>
+          <div>Amount: {tx.currency} {tx.amount}</div>
           <div>Date: {tx.date}</div>
         </div>
       ))}

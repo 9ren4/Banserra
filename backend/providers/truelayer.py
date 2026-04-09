@@ -287,8 +287,8 @@ class TrueLayerProvider(BankProvider):
                 currency = tx.get("currency", "GBP")
 
                 description = (
-                    tx.get("description")
-                    or tx.get("merchant_name")
+                    tx.get("merchant_name")
+                    or tx.get("description")
                     or "Unknown"
                 )
 
@@ -296,7 +296,13 @@ class TrueLayerProvider(BankProvider):
                 category = tx.get("transaction_category") or "Other"
 
                 # Timestamp format: "2021-03-15T00:00:00+00:00" → take date part
-                raw_ts   = tx.get("timestamp", "")
+                # Some banks return booking_datetime instead of timestamp
+                raw_ts   = (
+                    tx.get("timestamp")
+                    or tx.get("booking_datetime")
+                    or tx.get("value_datetime")
+                    or ""
+                )
                 date_str = raw_ts[:10] if raw_ts else ""
 
                 tx_id = (
